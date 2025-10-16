@@ -1,17 +1,26 @@
+# .github/workflows/convert-to-pdf.yml
+# ----------------------------------------------------------
+# 🪄 Converts Markdown docs into PDFs and commits them back
+# into the repo (in /pdfs). Triggered by pushes to docs/**
+# ----------------------------------------------------------
+
 name: Docs to PDF
 
 on:
   push:
     branches:
-      - "docs/**" 
+      - "docs/**"
     paths:
       - 'docs/**.md'
       - 'docs/images/**'
 
 jobs:
   converttopdf:
-    name: Build PDF (Baseline + Pretty)
+    name: Build PDF and commit to repo
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: write  # erlaubt Commit ins Repo
 
     steps:
       # ----------------------------------------------------------
@@ -19,14 +28,35 @@ jobs:
       # ----------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # vollständige Historie für Commit
 
       # ----------------------------------------------------------
-      # Baseline: simple conversion using baileyjm02/markdown-to-pdf
+      # Convert Markdown to PDF using baileyjm02/markdown-to-pdf
       # ----------------------------------------------------------
-      - name: Build (Baseline - markdown-to-pdf)
+      - name: Build PDFs from Markdown
         uses: baileyjm02/markdown-to-pdf@v1
         with:
           input_dir: docs
           output_dir: pdfs
           images_dir: docs/images
           image_import: ./images
+          build_html: false
+
+      # ----------------------------------------------------------
+      # Commit and push generated PDFs to same branch
+      # ----------------------------------------------------------
+      - name: Commit and push generated PDFs
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Aktuellen Branch herausfinden
+          BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
+          echo "Aktueller Branch: $BRANCH_NAME"
+
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git commit -m "Auto-build: update generated PDFs [skip ci]"
+          git push origin HEAD:$BRANCH_NAME
