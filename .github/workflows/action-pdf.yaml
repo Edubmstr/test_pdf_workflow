@@ -1,9 +1,4 @@
 # .github/workflows/convert-to-pdf.yml
-# ----------------------------------------------------------
-# 🪄 Converts Markdown docs into PDFs and commits them back
-# into the repo (in /pdfs). Triggered by pushes to docs/**
-# ----------------------------------------------------------
-
 name: Docs to PDF
 
 on:
@@ -23,40 +18,48 @@ jobs:
       contents: write  # erlaubt Commit ins Repo
 
     steps:
-      # ----------------------------------------------------------
-      # Checkout repository
-      # ----------------------------------------------------------
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # vollständige Historie für Commit
+          fetch-depth: 0
 
-      # ----------------------------------------------------------
-      # Convert Markdown to PDF using baileyjm02/markdown-to-pdf
-      # ----------------------------------------------------------
-      - name: Build PDFs from Markdown
+      - name: Build PDFs from Markdown (baseline action)
         uses: baileyjm02/markdown-to-pdf@v1
         with:
           input_dir: docs
-          output_dir: pdfs
+          output_dir: pdfs/           # 👈 WICHTIG: Slash am Ende!
           images_dir: docs/images
           image_import: ./images
           build_html: false
 
-      # ----------------------------------------------------------
-      # Commit and push generated PDFs to same branch
-      # ----------------------------------------------------------
+      - name: Normalize PDF output location
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pdfs
+          shopt -s nullglob
+          # Falls die Action PDFs fälschlich im Repo-Root erzeugt hat, rüber nach pdfs/
+          for f in *.pdf; do
+            echo "Verschiebe $f -> pdfs/"
+            mv "$f" pdfs/
+          done
+          # Optional: doppelte Dateien bereinigen (gleicher Name)
+          # for f in pdfs/*.pdf; do
+          #   [ -f "$f" ] || continue
+          #   echo "PDF vorhanden: $f"
+          # done
+          ls -la pdfs || true
+
       - name: Commit and push generated PDFs
         shell: bash
         run: |
           set -euo pipefail
-
-          # Aktuellen Branch herausfinden
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
           echo "Aktueller Branch: $BRANCH_NAME"
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          git commit -m "Auto-build: update generated PDFs [skip ci]"
+          git add -A pdfs/
+
+          git commit -m "Auto-build: update PDFs in /pdfs [skip ci]"
           git push origin HEAD:$BRANCH_NAME
