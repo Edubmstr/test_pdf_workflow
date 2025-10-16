@@ -3,24 +3,31 @@ name: Build docs.pdf from Markdown
 on:
   push:
     branches:
-      - "docs/**"
+      - "docs/**"   # Trigger nur bei Branches, die mit docs/ beginnen
 
 jobs:
   build-pdf:
     runs-on: ubuntu-latest
+
     permissions:
-      contents: write
+      contents: write  # erlaubt Commit zurück ins Repo
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 0   # vollständige Historie für Commit
 
-      - name: Install pandoc, tectonic (LaTeX) & fonts
+      - name: Install pandoc & XeLaTeX + fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc tectonic fonts-ibm-plex fonts-jetbrains-mono
+          sudo apt-get install -y \
+            pandoc \
+            texlive-xetex \
+            texlive-fonts-recommended \
+            texlive-lang-german \
+            fonts-ibm-plex \
+            fonts-jetbrains-mono
 
       - name: Prepare Pandoc helpers (page breaks + metadata)
         run: |
@@ -33,7 +40,7 @@ jobs:
           end
           LUA
 
-          # Optionale Metadaten (Titelblatt etc.)
+          # Metadaten (Titel, Sprache, etc.)
           cat > docs-metadata.yaml <<'YAML'
           title: "Projekt-Dokumentation"
           author: "Mia"
@@ -46,6 +53,7 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Alle Markdown-Dateien im docs/-Ordner sammeln (rekursiv), stabil sortieren
           mapfile -t MD_FILES < <(find docs -type f -name "*.md" | sort -V)
 
           if [ ${#MD_FILES[@]} -eq 0 ]; then
@@ -60,7 +68,7 @@ jobs:
             -s \
             --toc --toc-depth=2 \
             --metadata-file=docs-metadata.yaml \
-            --pdf-engine=tectonic \
+            --pdf-engine=xelatex \
             --resource-path=.:docs \
             --lua-filter=pagebreak.lua \
             --top-level-division=chapter \
@@ -78,19 +86,24 @@ jobs:
             -o docs.pdf
 
       - name: Commit and push docs.pdf to same branch
+        if: ${{ hashFiles('docs.pdf') != '' }}
         shell: bash
         run: |
+          # Aktuellen Branch bestimmen
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
           echo "Aktueller Branch: $BRANCH_NAME"
+
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+
           git add docs.pdf
-          git commit -m "Auto-build: pretty docs.pdf (LaTeX engine) [skip ci]" || echo "Nichts zu committen"
+          git commit -m "Auto-build: pretty docs.pdf (XeLaTeX) [skip ci]" || echo "Nichts zu committen"
           git push origin HEAD:$BRANCH_NAME
 
       - name: Upload PDF artifact (optional backup)
+        if: ${{ hashFiles('docs.pdf') != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: docs-pdf
           path: docs.pdf
-          if-no-files-found: error
+          if-no-files-found: warn
