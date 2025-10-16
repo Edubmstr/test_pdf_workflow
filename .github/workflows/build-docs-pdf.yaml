@@ -3,33 +3,50 @@ name: Build docs.pdf from Markdown
 on:
   push:
     branches:
-      - "docs/**"   # Trigger nur bei Branches, die mit docs/ beginnen
+      - "docs/**"
 
 jobs:
   build-pdf:
     runs-on: ubuntu-latest
-
     permissions:
-      contents: write  # erlaubt Commit zurück ins Repo
+      contents: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0   # vollständige Historie für Commit
+          fetch-depth: 0
 
-      - name: Install pandoc & wkhtmltopdf
+      - name: Install pandoc, tectonic (LaTeX) & fonts
         run: |
           sudo apt-get update
-          sudo apt-get install -y pandoc wkhtmltopdf
+          sudo apt-get install -y pandoc tectonic fonts-ibm-plex fonts-jetbrains-mono
+
+      - name: Prepare Pandoc helpers (page breaks + metadata)
+        run: |
+          # Lua-Filter: Seite umbrechen vor jeder H1 (jede Datei sollte mit H1 starten)
+          cat > pagebreak.lua <<'LUA'
+          function Header(el)
+            if el.level == 1 then
+              return { pandoc.RawBlock('latex', '\\clearpage'), el }
+            end
+          end
+          LUA
+
+          # Optionale Metadaten (Titelblatt etc.)
+          cat > docs-metadata.yaml <<'YAML'
+          title: "Projekt-Dokumentation"
+          author: "Mia"
+          toc-title: "Inhaltsverzeichnis"
+          lang: de-DE
+          YAML
 
       - name: Build docs.pdf from Markdown files in docs/
         shell: bash
         run: |
           set -euo pipefail
 
-          # Alle Markdown-Dateien im docs/-Ordner sammeln (rekursiv)
-          mapfile -t MD_FILES < <(find docs -type f -name "*.md" | sort)
+          mapfile -t MD_FILES < <(find docs -type f -name "*.md" | sort -V)
 
           if [ ${#MD_FILES[@]} -eq 0 ]; then
             echo "Keine Markdown-Dateien in ./docs gefunden. Beende."
@@ -41,24 +58,34 @@ jobs:
 
           pandoc \
             -s \
-            --toc \
-            -V margin=1in \
-            --pdf-engine=wkhtmltopdf \
+            --toc --toc-depth=2 \
+            --metadata-file=docs-metadata.yaml \
+            --pdf-engine=tectonic \
+            --resource-path=.:docs \
+            --lua-filter=pagebreak.lua \
+            --top-level-division=chapter \
+            -V mainfont="IBM Plex Serif" \
+            -V monofont="JetBrains Mono" \
+            -V fontsize=11pt \
+            -V geometry:margin=25mm \
+            -V colorlinks=true \
+            -V linkcolor=MidnightBlue \
+            -V urlcolor=MidnightBlue \
+            -V papersize=A4 \
+            -V classoption=oneside \
+            --listings \
             "${MD_FILES[@]}" \
             -o docs.pdf
 
       - name: Commit and push docs.pdf to same branch
         shell: bash
         run: |
-          # Aktuellen Branch bestimmen
           BRANCH_NAME=$(git rev-parse --abbrev-ref HEAD)
           echo "Aktueller Branch: $BRANCH_NAME"
-
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
           git add docs.pdf
-          git commit -m "Auto-build: update docs.pdf [skip ci]"
+          git commit -m "Auto-build: pretty docs.pdf (LaTeX engine) [skip ci]" || echo "Nichts zu committen"
           git push origin HEAD:$BRANCH_NAME
 
       - name: Upload PDF artifact (optional backup)
